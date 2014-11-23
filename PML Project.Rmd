@@ -1,0 +1,133 @@
+---
+title: "Like your Style"
+output: html_document
+---
+
+
+##Classifying Trainee's Quality 
+
+Goal: predict the manner in which trainees did the exercise, ie predict "classe".
+
+My **strategy** for approaching this project is to 
+* begin fitting models with methods that are simple, 
+* move on with more sophisticated & computationally intensive methods
+* evaluate whether my results are satisfactory or not
+* evaluate whether a principal components analysis can be useful
+* if my results need improvement and my principal components are relevant, use principal components with even more sophisticated methods to strike an appropriate accuracy- time/need for computation balance.
+
+So here it goes ...
+
+### A: Preparatory data massage (basic)
+
+**Creating usable data samples for training and testing**
+
+I notice that currently my sample is full of unusable values (NAs, DIV0 etc) as well as factors that need to be numerized so as to be fed in fitting methods such as trees. Consequently I will clean-up a bit to make it usable.
+
+```{r}
+library(caret)
+trda<-read.csv("pml-training.csv")
+trains<-createDataPartition(y=trda$classe, p=0.7, list=FALSE)
+trainsa<-trda[trains,]
+testsa<-trda[-trains,]
+
+#exclude NAs and keep only predictors variables. Make numerical.
+nt<-trainsa[sapply(trainsa, function(trainsa) !any(is.na(trainsa)))] 
+ft<-nt[sapply(nt, function(nt) any(is.numeric(nt)))] 
+ftpure<-ft
+ft$classe<-trainsa$classe
+```
+
+
+### B: Prepare for Cross Validation & PCA
+
+**Cross Validation prep**
+
+To have a reference point of how well my model choices perform I will validate within my training set by treating it as a sample that contains both testing and training material and use cross validation to build this reference point.
+
+First I will split my training set so as to create a sample for Cross Validation
+```{rdd}
+trCVi<-createDataPartition(y=ft$classe, p=0.7, list=FALSE)
+trCV<-ft[trCVi,]
+tsCV<-ft[-trCVi,]
+```
+
+**Principal Components Analysis**
+Since I have so many potential predictors it might be very useful in terms of time to process, to reduce the variability of my set, so as to make my examination faster. 
+For that matter I analyze which variables are the most significant, thus are worth keeping.
+
+I calculate the correlation of my variables, selecting those being above 0.75 and rebuilding a new backup training set.
+
+```{raa}
+M<-abs(cor(ftpure[]))
+diag(M)<-0
+index<-which(M>0.75, arr.ind=T)
+
+new_ft<-ftpure[, index[,1]]
+new_ft$classe<-ft$classe
+```
+I keep these components & my backup set aside and evaluate if and when I will use them.
+
+### C : Fit models /Fast Model Based Analysis
+
+First I build a basic tree with rpart method on my training-training subset.
+```{rab}
+rpfit<-train(trCV$classe~., data=trCV, method="rpart")
+plot(rpfit$finalModel)
+text(rpfit$finalModel,use.n=TRUE, all=TRUE, cex=0.8 )
+rpfit$results
+varImp(rpfit)
+```
+My **model accuracy** is *not satisfactory*, so I turn to other more sophisticated methods to compare potential results.
+
+**Random Forests** have blown up my system, so I park them to use with PCA (if needed) and turn to a less intensive method, that of **boosting**.
+
+```{raob}
+gbmfit<-train(trCV$classe~., data=trCV, method="gbm", verbose=FALSE)
+gbmfit$results
+```
+**Accuracy** with boosting seems radically **better**, remains to be validated with my testing on the train subset.
+
+**Can I use PCA with Random Forests to get even better results?**
+```{rao2b}
+summary(gbmfit)
+```
+These are the boosting predictors & their importance.
+I cross-check my  PCA components and notice that they might be oversimplified predictor, missing a few with quite high importance, so I don't opt for this combination now.
+
+### D : Evaluate my model /predicting its error
+
+I am using my training-testing subset to evaluate my potential error, or "I know what you did with last model"
+
+```{rabfc}
+prepart<-predict(rpfit,tsCV) ; preboost<-predict(gbmfit, tsCV)
+correctpart <- prepart==tsCV$classe ; correctgbm <- preboost==tsCV$classe
+
+#Evaluate RSME
+errb1<- table(correctpart, tsCV$classe)
+err1<-0 ;dia1<- 0 
+for (i in 1: 5 ){err1<- err1+(errb1[1,i]*errb1[1,i]) ; dia1<- dia1+ errb1[1,i]+errb1[2,i]}
+RMSE1<-sqrt(err1/dia1)
+
+errb2<- table(correctgbm, tsCV$classe)
+err2<-0 ;dia2<- 0 
+for (i in 1: 5 ){err2<- err2+(errb2[1,i]*errb2[1,i]) ; dia2<- dia2+ errb2[1,i]+errb2[2,i]}
+RMSE2<-sqrt(err2/dia2)
+```
+### E : Predicting on the test set.
+Having selected the boosting model as the one with best accuracy & radically better RMSE of ~0.9 vs ~11, I use it for predictions on my test set
+
+
+```{rab9c}
+#PREDICT 
+gwhat<-predict(gbmfit,testsa)
+correct<- gwhat==testsa$classe
+table(gwhat, testsa$classe)
+
+#Evaluate RSME
+errb<- table(correct, testsa$classe)
+err<-0 ;dia<- 0 
+for (i in 1: 5 ){err<- err+(errb[1,i]*errb[1,i]) ; dia<- dia+ errb[1,i]+errb[2,i]}
+RMSE<-sqrt(err/dia)
+
+```
+Seems pretty good, so approved for launching & identifying quality trainees.
