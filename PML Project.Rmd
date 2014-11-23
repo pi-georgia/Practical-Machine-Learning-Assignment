@@ -33,6 +33,7 @@ testsa<-trda[-trains,]
 #exclude NAs and keep only predictors variables. Make numerical.
 nt<-trainsa[sapply(trainsa, function(trainsa) !any(is.na(trainsa)))] 
 ft<-nt[sapply(nt, function(nt) any(is.numeric(nt)))] 
+ft<-ft[,5:56]
 ftpure<-ft
 ft$classe<-trainsa$classe
 ```
